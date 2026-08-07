@@ -1,4 +1,4 @@
-# Welcome to the Members Wall
+# Circle Photo Drop
 
 一個可部署到 GitHub Pages 的互動式成員牆。`members/` 裡的照片會變成有重力、碰撞、彈跳與拖曳效果的圓形球體。
 
@@ -112,6 +112,8 @@ node generate-photos.js
         ↓
 合併至 main
         ↓
+主動啟動部署 workflow
+        ↓
 重新產生 photos.js 並部署 GitHub Pages
 ```
 
@@ -121,3 +123,4 @@ node generate-photos.js
 - 圖片檔名會顯示在圓球的 hover 狀態；顯示時會移除最後一段副檔名。
 - Pull Request 草稿不會啟用自動合併，改成 Ready for review 後才會執行。
 - 從 fork 建立的 Pull Request 可能因 `GITHUB_TOKEN` 權限限制而無法自動合併，但圖片驗證仍可執行。
+- 自動合併使用的 `GITHUB_TOKEN` 不會觸發一般 `push` workflow，因此合併 job 會在確認 PR 已合併後，透過 `workflow_dispatch` 主動啟動 Pages 部署。

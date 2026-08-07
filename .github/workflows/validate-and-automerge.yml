@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -51,10 +52,39 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     needs: validate-member-images
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Enable auto-merge
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge "$PR_URL" --auto --merge
+
+      - name: Wait for merge and deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..60}; do
+            state="$(gh pr view "$PR_URL" --json state --jq '.state')"
+
+            if [[ "$state" == "MERGED" ]]; then
+              gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+              echo "Pull request merged; Pages deployment dispatched."
+              exit 0
+            fi
+
+            if [[ "$state" == "CLOSED" ]]; then
+              echo "Pull request closed without merging; deployment not started."
+              exit 1
+            fi
+
+            echo "Waiting for auto-merge ($attempt/60)..."
+            sleep 5
+          done
+
+          echo "Timed out waiting for the pull request to merge."
+          exit 1
