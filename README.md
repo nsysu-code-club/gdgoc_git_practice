@@ -1,4 +1,4 @@
-# Circle Photo Drop
+# Welcome Developers
 
 一個可部署到 GitHub Pages 的互動式成員牆。`members/` 裡的照片會變成有重力、碰撞、彈跳與拖曳效果的圓形球體。
 
