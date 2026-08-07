@@ -1,0 +1,60 @@
+name: Validate members and auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-member-images:
+    name: validate-member-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+
+      - name: Reject non-images in members
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          invalid=0
+          while IFS= read -r -d '' path; do
+            case "${path,,}" in
+              *.jpg|*.jpeg|*.png|*.gif|*.webp|*.avif) ;;
+              *)
+                echo "::error file=$path::Only JPG, JPEG, PNG, GIF, WEBP, and AVIF files are allowed in members/."
+                invalid=1
+                continue
+                ;;
+            esac
+
+            mime_type="$(file --brief --mime-type -- "$path")"
+            if [[ "$mime_type" != image/* ]]; then
+              echo "::error file=$path::The file extension looks like an image, but its detected type is $mime_type."
+              invalid=1
+            fi
+          done < <(git ls-files -z -- members/)
+
+          if (( invalid )); then
+            exit 1
+          fi
+
+          echo "Every tracked file in members/ is a valid image."
+
+  enable-auto-merge:
+    name: enable-auto-merge
+    if: ${{ !github.event.pull_request.draft }}
+    needs: validate-member-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --merge
