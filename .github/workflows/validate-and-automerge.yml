@@ -1,0 +1,121 @@
+name: Validate members and auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-member-images:
+    name: validate-member-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Reject changes outside members
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          invalid=0
+          while IFS= read -r -d '' path; do
+            if [[ "$path" == "members/README.md" ]]; then
+              echo "::error file=$path::The members/README.md placeholder may only be changed by a ruleset bypass user."
+              invalid=1
+            elif [[ "$path" != members/* ]]; then
+              echo "::error file=$path::Pull requests may only change image files inside members/."
+              invalid=1
+            fi
+          done < <(git diff --name-only -z "$BASE_SHA" "$HEAD_SHA")
+
+          if (( invalid )); then
+            exit 1
+          fi
+
+          echo "Every changed file is inside members/."
+
+      - name: Reject non-images in members
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          invalid=0
+          while IFS= read -r -d '' path; do
+            if [[ "$path" == "members/README.md" ]]; then
+              continue
+            fi
+
+            case "${path,,}" in
+              *.jpg|*.jpeg|*.png|*.gif|*.webp|*.avif) ;;
+              *)
+                echo "::error file=$path::Only JPG, JPEG, PNG, GIF, WEBP, and AVIF files are allowed in members/."
+                invalid=1
+                continue
+                ;;
+            esac
+
+            mime_type="$(file --brief --mime-type -- "$path")"
+            if [[ "$mime_type" != image/* ]]; then
+              echo "::error file=$path::The file extension looks like an image, but its detected type is $mime_type."
+              invalid=1
+            fi
+          done < <(git ls-files -z -- members/)
+
+          if (( invalid )); then
+            exit 1
+          fi
+
+          echo "Every tracked file in members/ is a valid image."
+
+  enable-auto-merge:
+    name: enable-auto-merge
+    if: ${{ !github.event.pull_request.draft }}
+    needs: validate-member-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --merge
+
+      - name: Wait for merge and deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..60}; do
+            state="$(gh pr view "$PR_URL" --json state --jq '.state')"
+
+            if [[ "$state" == "MERGED" ]]; then
+              gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+              echo "Pull request merged; Pages deployment dispatched."
+              exit 0
+            fi
+
+            if [[ "$state" == "CLOSED" ]]; then
+              echo "Pull request closed without merging; deployment not started."
+              exit 1
+            fi
+
+            echo "Waiting for auto-merge ($attempt/60)..."
+            sleep 5
+          done
+
+          echo "Timed out waiting for the pull request to merge."
+          exit 1
