@@ -78,15 +78,3 @@ jobs:
           fi
 
           echo "Every tracked file in members/ is a valid image."
-
-  enable-auto-merge:
-    name: Enable auto-merge
-    needs: validate-member-images
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - name: Enable Auto-Merge
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --merge "$PR_URL"
